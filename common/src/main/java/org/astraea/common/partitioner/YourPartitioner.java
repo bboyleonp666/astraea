@@ -19,7 +19,6 @@ package org.astraea.common.partitioner;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
-
 import org.apache.kafka.clients.producer.Partitioner;
 import org.apache.kafka.common.Cluster;
 
@@ -39,7 +38,9 @@ public class YourPartitioner implements Partitioner {
   }
 
   private int getKeyWithMinCount(Map<Integer, Integer> map) {
-    if (map.isEmpty()) { return -1; }
+    if (map.isEmpty()) {
+      return -1;
+    }
     Integer minKey = null;
     Integer minValue = Integer.MAX_VALUE;
     for (Map.Entry<Integer, Integer> entry : map.entrySet()) {
@@ -57,7 +58,9 @@ public class YourPartitioner implements Partitioner {
       String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
     var partitions = cluster.availablePartitionsForTopic(topic);
     // no available partition so we return -1
-    if (partitions.isEmpty()) return -1;
+    if (partitions.isEmpty()) {
+      return -1;
+    }
 
     // init maps
     for (var partition : partitions) {
