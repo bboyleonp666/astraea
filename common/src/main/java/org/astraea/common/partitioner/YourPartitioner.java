@@ -33,7 +33,9 @@ public class YourPartitioner implements Partitioner {
     var partitions = cluster.availablePartitionsForTopic(topic);
     // no available partition so we return -1
     if (partitions.isEmpty()) return -1;
-    int numOfPartitions = partitions.size();
+    System.out.println("debug: cluster information");
+    System.out.println(cluster.toString());
+    var numOfPartitions = cluster.partitionCountForTopic(topic);
     return (key.hashCode() % numOfPartitions + numOfPartitions) % numOfPartitions;
   }
 
