@@ -16,7 +16,6 @@
  */
 package org.astraea.common.partitioner;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
 import java.util.List;
@@ -35,17 +34,11 @@ public class YourPartitioner implements Partitioner {
   private Map<Integer, Set<Integer>> brokerPartitionMap;
   private Map<Integer, AtomicInteger> partitionCounts;
 
-  private List<Integer> brokerList;
-  private List<Integer> partitionList;
-
   @Override
   public void configure(Map<String, ?> configs) {
     brokerCounts = new ConcurrentHashMap<>();
     brokerPartitionMap = new ConcurrentHashMap<>();
     partitionCounts = new ConcurrentHashMap<>();
-
-    brokerList = new ArrayList<>();
-    partitionList = new ArrayList<>();
   }
 
   private int getKeyWithMinCount(Map<Integer, AtomicInteger> map) {
@@ -60,7 +53,8 @@ public class YourPartitioner implements Partitioner {
   public int partition(
           String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
 
-    List<PartitionInfo> partitions = cluster.availablePartitionsForTopic(topic);
+//    List<PartitionInfo> partitions = cluster.availablePartitionsForTopic(topic);
+    List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
     if (partitions.isEmpty()) {
       return -1;
     }
@@ -92,23 +86,11 @@ public class YourPartitioner implements Partitioner {
     if (partitionId != -1) {
       brokerCounts.get(minCountBrokerId).incrementAndGet();
       partitionCounts.get(partitionId).incrementAndGet();
-
-      brokerList.add(minCountBrokerId);
-      partitionList.add(partitionId);
     }
 
     return partitionId;
   }
 
   @Override
-  public void close() {
-    StringBuilder brokerListBuilder = new StringBuilder("brokerList: ");
-    brokerList.forEach(num -> brokerListBuilder.append(num).append(" "));
-
-    StringBuilder partitionListBuilder = new StringBuilder("partitionList: ");
-    partitionList.forEach(num -> partitionListBuilder.append(num).append(" "));
-
-    System.out.println(brokerListBuilder.toString().trim());
-    System.out.println(partitionListBuilder.toString().trim());
-  }
+  public void close() {}
 }
