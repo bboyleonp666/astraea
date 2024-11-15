@@ -16,79 +16,81 @@
  */
 package org.astraea.common.partitioner;
 
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
-import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
+import java.util.Random;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicInteger;
-
 import org.apache.kafka.clients.producer.Partitioner;
 import org.apache.kafka.common.Cluster;
 import org.apache.kafka.common.PartitionInfo;
 
 public class YourPartitioner implements Partitioner {
+  // Broker ID 到空間利用率的映射
+  private final Map<Integer, Long> brokerSpaceUsage = new ConcurrentHashMap<>();
 
-  private Map<Integer, AtomicInteger> brokerCounts;
-  private Map<Integer, Set<Integer>> brokerPartitionMap;
-  private Map<Integer, AtomicInteger> partitionCounts;
+  // Partition 到 Broker ID 的映射
+  private final Map<Integer, Integer> partitionToBroker = new ConcurrentHashMap<>();
 
   @Override
-  public void configure(Map<String, ?> configs) {
-    brokerCounts = new ConcurrentHashMap<>();
-    brokerPartitionMap = new ConcurrentHashMap<>();
-    partitionCounts = new ConcurrentHashMap<>();
-  }
-
-  private int getKeyWithMinCount(Map<Integer, AtomicInteger> map) {
-    return map.entrySet()
-            .stream()
-            .min(Comparator.comparingInt(e -> e.getValue().get()))
-            .map(Map.Entry::getKey)
-            .orElse(-1);
-  }
+  public void configure(Map<String, ?> configs) {}
 
   @Override
   public int partition(
-          String topic, Object key, byte[] keyBytes, Object value, byte[] valueBytes, Cluster cluster) {
+          String topic,
+          Object keyObj,
+          byte[] keyBytes,
+          Object valueObj,
+          byte[] valueBytes,
+          Cluster cluster) {
 
-//    List<PartitionInfo> partitions = cluster.availablePartitionsForTopic(topic);
+    // 獲取 topic 的所有分區信息
     List<PartitionInfo> partitions = cluster.partitionsForTopic(topic);
-    if (partitions.isEmpty()) {
-      return -1;
+
+    // 更新 partitionToBroker 映射
+    for (PartitionInfo partitionInfo : partitions) {
+      int partition = partitionInfo.partition();
+      int brokerId = partitionInfo.leader().id();
+      partitionToBroker.put(partition, brokerId);
+
+      // 初始化 brokerSpaceUsage，如果還沒有該 broker 的記錄
+      brokerSpaceUsage.putIfAbsent(brokerId, 0L);
     }
 
-    // Initialize maps if they are empty
-    if (brokerCounts.isEmpty() && brokerPartitionMap.isEmpty() && partitionCounts.isEmpty()) {
-      for (PartitionInfo partition : partitions) {
-        int brokerId = partition.leader().id();
-        int partitionId = partition.partition();
+    // 計算消息的大小
+    long messageSize = valueBytes != null ? valueBytes.length : 0;
 
-        brokerCounts.putIfAbsent(brokerId, new AtomicInteger(0));
-        partitionCounts.putIfAbsent(partitionId, new AtomicInteger(0));
+    // 找到空間利用率最低的 broker
+    int selectedBroker =
+            brokerSpaceUsage.entrySet().stream()
+                    .min(Comparator.comparingLong(Map.Entry::getValue))
+                    .get()
+                    .getKey();
 
-        brokerPartitionMap.computeIfAbsent(brokerId, k -> new HashSet<>()).add(partitionId);
+    // 在 selectedBroker 上找到可用的分區
+    List<Integer> candidatePartitions = new ArrayList<>();
+    for (Map.Entry<Integer, Integer> entry : partitionToBroker.entrySet()) {
+      if (entry.getValue() == selectedBroker) {
+        candidatePartitions.add(entry.getKey());
       }
     }
 
-    int minCountBrokerId = getKeyWithMinCount(brokerCounts);
-    Set<Integer> candidatePartitions = brokerPartitionMap.get(minCountBrokerId);
-
-    if (candidatePartitions == null || candidatePartitions.isEmpty()) {
-      return -1;
+    // 如果沒有找到，則使用默認的輪詢方式
+    int selectedPartition;
+    if (candidatePartitions.isEmpty()) {
+      // 使用輪詢方式選擇分區
+      selectedPartition = Math.abs(Arrays.hashCode(keyBytes)) % partitions.size();
+    } else {
+      // 從候選分區中選擇一個
+      selectedPartition = candidatePartitions.get(new Random().nextInt(candidatePartitions.size()));
     }
 
-    int partitionId = candidatePartitions.stream()
-            .min(Comparator.comparingInt(p -> partitionCounts.get(p).get()))
-            .orElse(-1);
+    // 更新選定 broker 的空間利用率
+    brokerSpaceUsage.compute(selectedBroker, (k, v) -> v + messageSize);
 
-    if (partitionId != -1) {
-      brokerCounts.get(minCountBrokerId).incrementAndGet();
-      partitionCounts.get(partitionId).incrementAndGet();
-    }
-
-    return partitionId;
+    return selectedPartition;
   }
 
   @Override
