@@ -23,6 +23,7 @@ import java.lang.management.GarbageCollectorMXBean;
 import java.lang.management.ManagementFactory;
 import java.nio.ByteBuffer;
 import java.time.Duration;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
@@ -130,6 +131,8 @@ public class SendYourData {
 
   public static class YourSender implements Closeable {
     private final KafkaProducer<Key, byte[]> producer;
+    private final Map<Integer, byte[]> cache = new HashMap<>();
+    private final ByteBuffer buffer = ByteBuffer.allocate(Long.BYTES * 2000);
 
     @Override
     public void close() throws IOException {
@@ -139,11 +142,16 @@ public class SendYourData {
     public YourSender(String bootstrapServers) {
       Serializer<Key> serializer =
           (topic, key) -> {
-            var buffer = ByteBuffer.allocate(Long.BYTES * key.vs.size());
+            int keyHash = key.vs.hashCode();
+            if (cache.containsKey(keyHash)) {
+              return cache.get(keyHash);
+            }
+            buffer.clear();
             key.vs.forEach(buffer::putLong);
             buffer.flip();
             var bytes = new byte[buffer.remaining()];
             buffer.get(bytes);
+            cache.put(keyHash, bytes);
             return bytes;
           };
       producer =
